@@ -1,0 +1,33 @@
+# --- Secrets / config thật ---
+.env
+*.env
+!.env.example
+
+# --- fairino SDK (vendor, đặt tay, KHÔNG commit) ---
+app/robot/sdk/*.py
+!app/robot/sdk/__init__.py
+
+# --- AI models ---
+*.pt
+*.onnx
+models/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# --- Calib / runtime ---
+*.npy
+perspective.npy
+logs/
+*.log
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

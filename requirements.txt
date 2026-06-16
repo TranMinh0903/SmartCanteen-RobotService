@@ -1,0 +1,20 @@
+# --- API / service ---
+fastapi==0.110.0
+uvicorn[standard]==0.27.1
+pydantic==2.6.4
+pydantic-settings==2.2.1
+python-dotenv==1.0.1
+
+# --- SignalR client (nối RA Backend) ---
+signalrcore==0.9.5
+
+# --- Vision (nhận diện món) ---
+opencv-python==4.9.0.80
+# ultralytics==8.2.0      # YOLO — bật khi cần lớp kiểm tra an toàn
+# pyzbar==0.1.9           # đọc QR chén (hoặc dùng cv2.QRCodeDetector)
+
+# --- fairino SDK: cài/đặt thủ công vào app/robot/sdk/, KHÔNG qua pip ---
+# (xem app/robot/sdk/README.md)
+
+# --- test ---
+pytest==8.1.1
