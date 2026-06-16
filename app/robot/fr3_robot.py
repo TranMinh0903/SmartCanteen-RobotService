@@ -47,11 +47,12 @@ class FR3Robot:
         try:
             err, p_lane = self.robot.GetRobotTeachingPoint(lane_point)
             err, p_place = self.robot.GetRobotTeachingPoint(place_point)
-            # mở kẹp → SAFE_Z → hạ PICK_Z → đóng kẹp → SAFE_Z → đặt (xem doc §4.4)
-            self.robot.MoveGripper(0, ...)             # mở   # noqa: placeholder
-            self.robot.MoveCart(desc_pos=p_lane, ...)  # tới lane  # noqa
-            self.robot.MoveGripper(1, ...)             # đóng (gắp)  # noqa
-            self.robot.MoveCart(desc_pos=p_place, ...) # đặt lên khay  # noqa
+            # Trình tự an toàn 3 độ cao (doc §4.4): mở kẹp → tới lane → đóng (gắp) → đặt → mở.
+            # TODO: điền ĐÚNG chữ ký SDK fairino (vel, tool, user, blendT, SAFE_Z/PICK_Z...).
+            self.robot.MoveCart(p_lane)       # tới lane gắp
+            self.robot.MoveGripper(1)         # đóng kẹp (gắp tô)
+            self.robot.MoveCart(p_place)      # đặt lên khay
+            self.robot.MoveGripper(0)         # mở kẹp
             return True
         except Exception as e:  # noqa: BLE001
             log.error("[%s] lỗi pick_and_place: %s", self.station, e)
