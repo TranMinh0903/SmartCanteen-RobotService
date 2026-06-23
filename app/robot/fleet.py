@@ -13,17 +13,23 @@ log = logging.getLogger("fleet")
 class RobotFleet:
     def __init__(self):
         self.arms: dict[str, FR3Robot] = {}
+        # DEDUPE theo IP: nhiều trạm trỏ cùng 1 robot -> CHỈ 1 kết nối (tránh tranh cổng 20004)
+        ip_to_arm: dict[str, FR3Robot] = {}
         for station, cfg in settings.arms.items():
-            self.arms[station] = FR3Robot(
-                station=station, ip=cfg["ip"],
-                port=settings.ARM_RPC_PORT, dry_run=settings.DRY_RUN,
-            )
+            ip = cfg["ip"]
+            if ip not in ip_to_arm:
+                ip_to_arm[ip] = FR3Robot(
+                    station=station, ip=ip,
+                    port=settings.ARM_RPC_PORT, dry_run=settings.DRY_RUN,
+                )
+            self.arms[station] = ip_to_arm[ip]   # trạm chia sẻ cùng 1 đối tượng robot
+        self._unique = list(ip_to_arm.values())
 
     def connect_all(self) -> None:
-        for arm in self.arms.values():
+        for arm in self._unique:                 # chỉ connect mỗi robot 1 lần
             arm.connect()
-        ok = sum(a.connected for a in self.arms.values())
-        log.info("Fleet: %d/%d cánh tay kết nối (DRY_RUN=%s)", ok, len(self.arms), settings.DRY_RUN)
+        ok = sum(a.connected for a in self._unique)
+        log.info("Fleet: %d/%d robot vật lý kết nối (DRY_RUN=%s)", ok, len(self._unique), settings.DRY_RUN)
 
     def station_for_category(self, category: str) -> str | None:
         for station, cfg in settings.arms.items():

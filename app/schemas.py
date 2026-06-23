@@ -1,34 +1,52 @@
-"""DTO khớp với Backend (JSON contract). BE đẩy ServingJob xuống qua SignalR."""
+"""DTO khớp HỢP ĐỒNG BE (SignalR JSON, camelCase).
+
+BE đẩy `ServingJobMessage` qua event "ReceiveJob"; service báo ngược
+`ServingStatusUpdate` qua hub method "ReportStatus".
+Field name = camelCase ĐÚNG như BE serialize (ASP.NET Core SignalR mặc định camelCase).
+"""
 from __future__ import annotations
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict
 
 
 class Item(BaseModel):
-    dish: str                      # mã món, vd "COM_TRANG"
-    station: str                   # trạm gắp: "S1" | "S2" | "S3"
-    qty: int = 1
+    """1 món trong job (BE: ServingJobItemMessage). BE hiện chỉ set dishId + quantity."""
+    model_config = ConfigDict(extra="ignore")
+    dishId: str | None = None
+    dishName: str | None = None
+    quantity: int = 1
+    station: str | None = None        # BE có thể chưa set -> route mặc định S1 khi test
+
+    @property
+    def dish(self) -> str:            # tiện log
+        return self.dishName or self.dishId or "?"
 
 
 class ServingJob(BaseModel):
-    """BE bind lúc thanh toán rồi đẩy xuống service (mô hình PUSH)."""
+    """BE -> service (event "ReceiveJob") = ServingJobMessage."""
+    model_config = ConfigDict(extra="ignore")
+    jobId: str | None = None
     orderId: str
-    tray: int                      # TrayId (ArUco/barcode) đã bind với order
-    items: list[Item] = Field(default_factory=list)
+    trayId: str | None = None
+    trayCode: str | None = None
+    items: list[Item] = []
 
 
 class JobState(str, Enum):
-    QUEUED = "QUEUED"
-    DISPATCHED = "DISPATCHED"
-    SERVING = "SERVING"
-    DONE = "DONE"
-    ERROR = "ERROR"
+    # vocab khớp BE (ReportServingStatus): Assembling/PickStarted/PickCompleted/PlaceCompleted/Failed
+    DISPATCHED = "Dispatched"
+    PICK_STARTED = "PickStarted"
+    PICK_COMPLETED = "PickCompleted"
+    PLACE_COMPLETED = "PlaceCompleted"
+    DONE = "Done"
+    FAILED = "Failed"
 
 
 class StatusUpdate(BaseModel):
-    """Service báo ngược BE (qua SignalR)."""
+    """service -> BE (hub "ReportStatus") = ServingStatusUpdate."""
+    model_config = ConfigDict(extra="ignore")
     orderId: str
-    tray: int
-    state: JobState
-    station: str | None = None     # trạm vừa xong (nếu có)
+    trayId: str | None = None
+    state: str
+    station: str | None = None
     message: str | None = None

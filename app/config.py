@@ -7,6 +7,11 @@ class Settings(BaseSettings):
 
     DRY_RUN: bool = True
 
+    # TEST ĐẦU: nhận ReceiveJob -> chỉ làm 1 cú MOVE AN TOÀN trên S1 (xoay cổ tay),
+    # BỎ QUA pick_and_place (chưa cần teaching point/gripper). Tắt khi vào luồng thật.
+    FIRST_TEST_DEMO_MOVE: bool = True
+    DEMO_STATION: str = "S1"
+
     # 3 cánh tay — mỗi con 1 IP riêng
     ARM_S1_IP: str = "192.168.58.2"
     ARM_S2_IP: str = "192.168.58.3"

@@ -6,6 +6,7 @@ Mỗi job: thả khay → từng trạm CÓ món thì QUÉT QR CHÉN verify → 
 from __future__ import annotations
 import asyncio
 import logging
+from app.config import settings
 from app.schemas import ServingJob, StatusUpdate, JobState
 from app.robot.fleet import fleet
 from app.vision.qr_scanner import verify_dish
@@ -24,7 +25,7 @@ class Orchestrator:
     async def submit(self, job: ServingJob) -> None:
         """BE gọi (qua SignalR/HTTP) khi có đơn mới — enqueue (FIFO theo giờ thanh toán)."""
         await self.queue.put(job)
-        log.info("enqueue %s (tray %s, %d món)", job.orderId, job.tray, len(job.items))
+        log.info("enqueue %s (tray %s, %d món)", job.orderId, job.trayId, len(job.items))
 
     async def run(self) -> None:
         """Vòng lặp VÔ HẠN — kéo đơn kế tiếp, xử lý, lặp. Hết đơn thì chờ (không cháy CPU)."""
@@ -35,12 +36,31 @@ class Orchestrator:
                 await self._process(job)
             except Exception as e:  # noqa: BLE001
                 log.exception("lỗi xử lý %s: %s", job.orderId, e)
-                await self._emit(job, JobState.ERROR, message=str(e))
+                await self._emit(job, JobState.FAILED, message=str(e))
             finally:
                 self.queue.task_done()
 
     async def _process(self, job: ServingJob) -> None:
+        log.info("▶️ bắt đầu xử lý %s (demo=%s)", job.orderId, settings.FIRST_TEST_DEMO_MOVE)
         await self._emit(job, JobState.DISPATCHED)
+        log.info("   đã emit DISPATCHED")
+
+        # ===== TEST ĐẦU: chỉ làm 1 cú MOVE AN TOÀN trên 1 trạm (chứng minh BE->robot) =====
+        if settings.FIRST_TEST_DEMO_MOVE:
+            arm = fleet.get(settings.DEMO_STATION)
+            if arm is None:
+                raise RuntimeError(f"không có cánh tay {settings.DEMO_STATION} để demo move")
+            await self._emit(job, JobState.PICK_STARTED, station=settings.DEMO_STATION)
+            log.info("   → gọi demo_safe_move trên %s ...", settings.DEMO_STATION)
+            ok = await asyncio.to_thread(arm.demo_safe_move)
+            log.info("   demo_safe_move trả về: %s", ok)
+            if not ok:
+                raise RuntimeError("demo_safe_move thất bại")
+            await self._emit(job, JobState.DONE, station=settings.DEMO_STATION)
+            log.info("✅ DEMO %s xong — BE đã bắn được xuống robot.", job.orderId)
+            return
+
+        # ===== LUỒNG THẬT (tắt FIRST_TEST_DEMO_MOVE): gắp từng trạm =====
         # Pipeline: khay đi qua từng trạm; trạm CÓ món của đơn thì gắp.
         for item in job.items:
             arm = fleet.get(item.station)
@@ -55,14 +75,15 @@ class Orchestrator:
             ok = await asyncio.to_thread(arm.pick_and_place, item.dish, lane_point, place_point)
             if not ok:
                 raise RuntimeError(f"pick_and_place thất bại ở {item.station}")
-            await self._emit(job, JobState.SERVING, station=item.station)
+            await self._emit(job, JobState.PICK_COMPLETED, station=item.station)
         # đủ món → khay đẩy ra Staff
         await self._emit(job, JobState.DONE)
-        log.info("✅ %s xong (tray %s)", job.orderId, job.tray)
+        log.info("✅ %s xong (tray %s)", job.orderId, job.trayId)
 
     async def _emit(self, job: ServingJob, state: JobState, **kw) -> None:
         if self._report:
-            await self._report(StatusUpdate(orderId=job.orderId, tray=job.tray, state=state, **kw))
+            await self._report(StatusUpdate(
+                orderId=job.orderId, trayId=job.trayId, state=state.value, **kw))
 
 
 orchestrator = Orchestrator()
