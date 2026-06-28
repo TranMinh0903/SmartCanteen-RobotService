@@ -25,5 +25,16 @@ def verify_dish(station: str, expected: str) -> bool:
     return ok
 
 
-def _read_qr(station: str) -> str:  # placeholder — nối camera thật ở đây
-    raise NotImplementedError("Gắn camera/scanner cho trạm rồi decode QR")
+def _read_qr(station: str) -> str:
+    """Chụp 1 khung từ camera của trạm rồi decode QR/dotcode nắp chén.
+
+    Hiện 1 webcam (top-down) phục vụ chung → dùng CAM_INTAKE_INDEX cho mọi trạm.
+    Khi đủ camera/trạm: map station → index riêng ở đây.
+    """
+    from app.vision.camera import get_camera
+    from app.vision.codes import read_one
+    frame = get_camera().grab()           # mặc định CAM_INTAKE_INDEX
+    if frame is None:
+        log.warning("[%s] không lấy được khung từ camera", station)
+        return ""
+    return read_one(frame) or ""

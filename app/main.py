@@ -20,9 +20,16 @@ async def lifespan(app: FastAPI):
     log.info("Khởi động robot-arm-service (DRY_RUN=%s)", settings.DRY_RUN)
     fleet.connect_all()
     loop_task = asyncio.create_task(orchestrator.run())   # job loop chạy nền
-    await signalr_client.start()                          # nối RA Backend
+    await signalr_client.start()                          # nối RA Backend (ping/status)
+
+    # HYBRID: lưới an toàn idle-poll + kéo job đang chờ lúc khởi động
+    from app.puller import idle_poll_loop, drain
+    poll_task = asyncio.create_task(idle_poll_loop())
+    asyncio.create_task(drain())
+
     yield
     loop_task.cancel()
+    poll_task.cancel()
 
 
 app = FastAPI(title="Smart Canteen — robot-arm-service", version="0.1.0", lifespan=lifespan)

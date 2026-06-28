@@ -46,7 +46,8 @@ class SignalRClient:
             self._conn.on_open(lambda: log.info("✅ SignalR mở kết nối tới %s", settings.BACKEND_HUB_URL))
             self._conn.on_close(lambda: log.warning("SignalR đóng kết nối"))
             self._conn.on_error(lambda m: log.error("SignalR error: %s", m))
-            self._conn.on("ReceiveJob", self._on_job)    # BE đẩy đơn xuống
+            self._conn.on("ReceiveJob", self._on_job)        # PUSH cũ: BE đẩy kèm data
+            self._conn.on("JobAvailable", self._on_ping)     # HYBRID: ping -> robot tự pull
             orchestrator.set_reporter(self.report)
             # signalrcore .start() có thể BLOCK -> chạy nền để KHÔNG treo startup FastAPI
             threading.Thread(target=self._safe_start, name="signalr-start", daemon=True).start()
@@ -71,6 +72,13 @@ class SignalRClient:
                 asyncio.run_coroutine_threadsafe(orchestrator.submit(job), self._loop)
         except Exception as e:  # noqa: BLE001
             log.error("ReceiveJob parse/submit lỗi: %s | raw=%s", e, args)
+
+    def _on_ping(self, args) -> None:
+        """HYBRID: ping 'JobAvailable' (không data) -> kéo job từ BE (drain)."""
+        log.info("🔔 JobAvailable (ping) -> pull")
+        if self._loop is not None:
+            from app.puller import drain
+            asyncio.run_coroutine_threadsafe(drain(), self._loop)
 
     async def report(self, update: StatusUpdate) -> None:
         if self._conn is None:

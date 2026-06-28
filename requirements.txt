@@ -11,6 +11,8 @@ signalrcore==0.9.5
 # --- Vision (nhận diện món) ---
 numpy<2.0            # opencv 4.9 cần numpy 1.x (numpy 2 gây crash cv2)
 opencv-python==4.9.0.80
+pylibdmtx==0.1.10    # đọc/ghi Data Matrix (mã chấm vuông) — QR thì cv2 lo sẵn
+setuptools<74        # cung cấp distutils cho pylibdmtx trên Python 3.12
 # ultralytics==8.2.0      # YOLO — bật khi cần lớp kiểm tra an toàn
 # pyzbar==0.1.9           # đọc QR chén (hoặc dùng cv2.QRCodeDetector)
 

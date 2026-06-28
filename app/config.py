@@ -31,6 +31,17 @@ class Settings(BaseSettings):
     YOLO_MODEL_PATH: str = "models/food_v1.pt"
     QR_VERIFY_ENABLED: bool = True
 
+    # --- Camera (webcam HIKVISION đọc dotcode/QR nắp hộp) ---
+    CAM_BACKEND: str = "msmf"      # msmf (HIKVISION 720p OK) | dshow | any
+    CAM_INTAKE_INDEX: int = 1      # webcam top-down đọc nắp hộp (chạy test_camera.py --list để biết index)
+    CAM_WIDTH: int = 1280
+    CAM_HEIGHT: int = 720
+
+    # Loại mã trên nắp hộp: qr | datamatrix | both (đọc cả hai).
+    # Data Matrix cần pylibdmtx (+ setuptools<74 trên Python 3.12).
+    CODE_KIND: str = "both"
+    CODE_DM_TIMEOUT_MS: int = 150   # giới hạn thời gian decode Data Matrix mỗi khung (tránh tụt FPS)
+
     @property
     def arms(self) -> dict[str, dict]:
         """Map trạm → {ip, category}."""
