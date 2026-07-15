@@ -27,9 +27,20 @@ async def lifespan(app: FastAPI):
     poll_task = asyncio.create_task(idle_poll_loop())
     asyncio.create_task(drain())
 
+    # Nhịp tim: báo BE các trạm còn sống (LastHeartbeatUtc + Offline->Idle), 20s/lần
+    async def heartbeat_loop() -> None:
+        stations = list(settings.arms.keys())
+        await asyncio.sleep(5)          # chờ SignalR mở kết nối (tránh bắn trước on_open)
+        while True:
+            await signalr_client.heartbeat(stations)
+            await asyncio.sleep(20)
+
+    hb_task = asyncio.create_task(heartbeat_loop())
+
     yield
     loop_task.cancel()
     poll_task.cancel()
+    hb_task.cancel()
 
 
 app = FastAPI(title="Smart Canteen — robot-arm-service", version="0.1.0", lifespan=lifespan)

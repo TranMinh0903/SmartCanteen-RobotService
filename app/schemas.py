@@ -33,12 +33,13 @@ class ServingJob(BaseModel):
 
 
 class JobState(str, Enum):
-    # vocab khớp BE (ReportServingStatus): Assembling/PickStarted/PickCompleted/PlaceCompleted/Failed
-    DISPATCHED = "Dispatched"
+    # vocab PHẢI khớp MapEventType của BE (không khớp -> BE fallback JobReceived, sai EventType):
+    # received / pickstarted / pickcompleted / placecompleted / failed (so sánh không phân biệt hoa thường)
+    DISPATCHED = "Received"          # nhận việc (BE: JobReceived)
     PICK_STARTED = "PickStarted"
     PICK_COMPLETED = "PickCompleted"
     PLACE_COMPLETED = "PlaceCompleted"
-    DONE = "Done"
+    DONE = "PlaceCompleted"          # job xong = đặt món xong (alias của PLACE_COMPLETED)
     FAILED = "Failed"
 
 

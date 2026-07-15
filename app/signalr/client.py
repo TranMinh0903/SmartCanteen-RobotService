@@ -90,5 +90,14 @@ class SignalRClient:
         except Exception as e:  # noqa: BLE001
             log.error("ReportStatus gửi lỗi: %s", e)
 
+    async def heartbeat(self, stations: list[str]) -> None:
+        """Nhịp tim định kỳ: BE set LastHeartbeatUtc + Offline->Idle (không ghi event log)."""
+        if self._conn is None:
+            return
+        try:
+            await asyncio.to_thread(self._conn.send, "Heartbeat", [stations])
+        except Exception as e:  # noqa: BLE001
+            log.error("Heartbeat gửi lỗi: %s", e)
+
 
 signalr_client = SignalRClient()
