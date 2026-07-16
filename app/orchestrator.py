@@ -61,13 +61,13 @@ class Orchestrator:
         if settings.FIRST_TEST_DEMO_MOVE:
             arm = fleet.get(settings.DEMO_STATION)
             if arm is None:
-                raise RuntimeError(f"không có cánh tay {settings.DEMO_STATION} để demo move")
+                raise StationError(f"không có cánh tay {settings.DEMO_STATION} để demo move", settings.DEMO_STATION)
             await self._emit(job, JobState.PICK_STARTED, station=settings.DEMO_STATION)
             log.info("   → gọi demo_safe_move trên %s ...", settings.DEMO_STATION)
             ok = await asyncio.to_thread(arm.demo_safe_move)
             log.info("   demo_safe_move trả về: %s", ok)
             if not ok:
-                raise RuntimeError("demo_safe_move thất bại")
+                raise StationError("demo_safe_move thất bại", settings.DEMO_STATION)
             await self._emit(job, JobState.DONE, station=settings.DEMO_STATION)
             log.info("✅ DEMO %s xong — BE đã bắn được xuống robot.", job.orderId)
             return
