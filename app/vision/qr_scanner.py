@@ -1,6 +1,7 @@
-"""Nhận diện món bằng QUÉT QR CHÉN (cách CHÍNH).
+"""Nhận diện món bằng QUÉT DOTCODE/QR trên chén.
 
-QR dán trên hông chén (quay về phía robot). Quét → so với món kỳ vọng.
+Luồng: robot GẮP theo teaching point → ĐẶT lên khay → gọi verify_dish() để camera
+(top-down vùng khay) quét dotcode nắp và so với món kỳ vọng.
 DRY_RUN / chưa gắn scanner → trả True (giả định đúng) để test logic.
 """
 from __future__ import annotations

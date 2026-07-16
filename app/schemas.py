@@ -16,6 +16,7 @@ class Item(BaseModel):
     dishName: str | None = None
     quantity: int = 1
     station: str | None = None        # BE có thể chưa set -> route mặc định S1 khi test
+    laneCode: str | None = None       # nhãn lane BE gửi (vd "S1-L2") -> teaching point ưu tiên
 
     @property
     def dish(self) -> str:            # tiện log
