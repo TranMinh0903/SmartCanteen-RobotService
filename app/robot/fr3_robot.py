@@ -38,24 +38,103 @@ class FR3Robot:
         return self.connected
 
     # ---- thao tác cốt lõi: gắp tô ở lane (teaching point) → đặt lên khay ----
-    def pick_and_place(self, dish: str, lane_point: str, place_point: str) -> bool:
-        """Gắp tô món `dish` ở `lane_point` (teaching point) → đặt `place_point`.
+    _GRIPPER_DO_ID  = 0           # Tool Digital Output ID điều khiển kẹp (xem test_gripper.py)
+    _APPROACH_DZ    = 100.0       # mm nhấc/hạ THẲNG đứng quanh điểm gắp/đặt (chống đổ); override bằng "approach_dz" trong JSON
 
-        Vị trí = teaching point (tô ở đầu lane kệ gravity, dạy 1 lần).
-        Nhận diện món = QUÉT QR CHÉN (verify) — gọi ở orchestrator/vision trước khi pick.
+    @staticmethod
+    def _lift(pose: list, dz: float) -> list:
+        """Bản sao pose cartesian [x,y,z,rx,ry,rz] với Z (mm) +dz — điểm phía TRÊN để hạ/nhấc thẳng."""
+        p = list(pose)
+        p[2] += dz
+        return p
+
+    def _resolve_point(self, pts: dict, name: str, kind: str = "LANE") -> str | None:
+        """Khớp teaching point theo MÃ VỊ TRÍ (BE gửi: lane 'S1_L2', place 'PLACE_S1_2'):
+        1. Exact match.
+        2. Fallback: bất kỳ điểm cùng trạm ('S1_L*' / 'PLACE_S1_*') để test khỏi kẹt.
+        3. None → caller báo lỗi.
+        """
+        if name in pts:
+            return name                                  # 1. Exact
+
+        if kind == "LANE":
+            station = name.split("_", 1)[0]              # "S1_L2" -> "S1"
+            head = f"{station}_L"
+        else:
+            head = "_".join(name.split("_")[:-1]) + "_"  # "PLACE_S1_2" -> "PLACE_S1_"
+
+        alt = next((k for k in pts if k.startswith(head)), None)
+        if alt:
+            log.warning("[%s] '%s' chưa dạy → tạm dùng '%s' (fallback cùng trạm)",
+                        self.station, name, alt)
+        return alt                                       # None nếu không có
+
+
+    def pick_and_place(self, dish: str, lane_point: str, place_point: str,
+                       vel: float = 20.0, ovl: float = 40.0) -> bool:
+        """Gắp tô ở `lane_point` (mã lane BE gửi, vd 'S1_L2') → đặt `place_point` ('PLACE_S1_2').
+
+        Đọc pose (tcp) từ teaching_points.json (do teach_record.py lưu, key = mã vị trí).
+        Gắp AN TOÀN: trên-lane → hạ thẳng → kẹp → nhấc thẳng → sang khay → hạ → nhả → rút.
         """
         if self.dry_run:
             log.info("[%s] (dry) gắp %s @%s → đặt @%s", self.station, dish, lane_point, place_point)
             return True
         try:
-            err, p_lane = self.robot.GetRobotTeachingPoint(lane_point)
-            err, p_place = self.robot.GetRobotTeachingPoint(place_point)
-            # Trình tự an toàn 3 độ cao (doc §4.4): mở kẹp → tới lane → đóng (gắp) → đặt → mở.
-            # TODO: điền ĐÚNG chữ ký SDK fairino (vel, tool, user, blendT, SAFE_Z/PICK_Z...).
-            self.robot.MoveCart(p_lane)       # tới lane gắp
-            self.robot.MoveGripper(1)         # đóng kẹp (gắp tô)
-            self.robot.MoveCart(p_place)      # đặt lên khay
-            self.robot.MoveGripper(0)         # mở kẹp
+            from app.robot.teaching import load_points
+            pts = load_points()
+
+            # --- resolve tên lane (exact → fuzzy prefix bỏ dấu → fallback) ---
+            resolved_lane = self._resolve_point(pts, lane_point, kind="LANE")
+            if resolved_lane is None:
+                log.error("[%s] không tìm được teaching point lane cho '%s'", self.station, lane_point)
+                return False
+            if resolved_lane != lane_point:
+                log.warning("[%s] '%s' → dùng '%s' (fuzzy/fallback)", self.station, lane_point, resolved_lane)
+
+            # --- resolve tên place (exact → fallback) ---
+            resolved_place = self._resolve_point(pts, place_point, kind="PLACE")
+            if resolved_place is None:
+                log.error("[%s] không tìm được teaching point place cho '%s'", self.station, place_point)
+                return False
+            if resolved_place != place_point:
+                log.warning("[%s] '%s' → dùng '%s' (fuzzy/fallback)", self.station, place_point, resolved_place)
+
+            # tcp (cartesian [x,y,z,rx,ry,rz]) để hạ/nhấc THẲNG đứng — mấu chốt chống đổ
+            lane_tcp  = pts[resolved_lane].get("tcp")
+            place_tcp = pts[resolved_place].get("tcp")
+            if lane_tcp is None or place_tcp is None:
+                log.error("[%s] thiếu 'tcp' ở lane/place (dạy lại điểm có tcp mới gắp an toàn được)", self.station)
+                return False
+
+            dz_lane  = float(pts[resolved_lane].get("approach_dz", self._APPROACH_DZ))
+            dz_place = float(pts[resolved_place].get("approach_dz", self._APPROACH_DZ))
+            above_lane  = self._lift(lane_tcp, dz_lane)
+            above_place = self._lift(place_tcp, dz_place)
+
+            # --- trình tự gắp/đặt AN TOÀN: hạ/nhấc THẲNG, không vươn-quăng ngang ---
+            steps = [
+                ("MOVE", above_lane,  "① tới trên lane"),   # tới phía trên lane ở độ cao an toàn
+                ("MOVE", lane_tcp,    "② hạ xuống gắp"),     # hạ thẳng xuống điểm gắp
+                ("GRIP", 1,           "③ đóng kẹp"),          # kẹp tô
+                ("MOVE", above_lane,  "④ nhấc lên"),          # nhấc thẳng lên (nhấc khỏi kệ)
+                ("MOVE", above_place, "⑤ sang trên khay"),    # sang ô khay, giữ độ cao
+                ("MOVE", place_tcp,   "⑥ hạ đặt"),            # hạ thẳng đặt xuống khay
+                ("GRIP", 0,           "⑦ mở kẹp"),            # nhả tô
+                ("MOVE", above_place, "⑧ rút lên"),           # rút thẳng lên, sẵn cho món kế
+            ]
+            for kind, arg, desc in steps:
+                if kind == "GRIP":
+                    self.robot.SetToolDO(self._GRIPPER_DO_ID, arg)
+                    time.sleep(0.5)                            # đợi kẹp đóng/mở xong
+                    continue
+                log.info("[%s] MoveL %s", self.station, desc)
+                rc = self.robot.MoveL(arg, tool=0, user=0, vel=vel, ovl=ovl)
+                if rc != 0:
+                    log.error("[%s] MoveL %s lỗi rc=%s", self.station, desc, rc)
+                    return False
+
+            log.info("[%s] pick_and_place '%s' xong", self.station, dish)
             return True
         except Exception as e:  # noqa: BLE001
             log.error("[%s] lỗi pick_and_place: %s", self.station, e)
@@ -168,7 +247,7 @@ class FR3Robot:
             if not self.move_to_point(name, vel, ovl):
                 return False
             time.sleep(0.2)
-            # TODO(gripper): tới `lane` → đóng kẹp; tới `place` → mở kẹp
+            # TODO(gripper): tới `lane` → SetToolDO(0,1); tới `place` → SetToolDO(0,0)
         log.info("[%s] run_pick_place xong.", self.station)
         return True
 

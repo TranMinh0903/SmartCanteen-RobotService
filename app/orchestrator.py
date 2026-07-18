@@ -15,18 +15,18 @@ log = logging.getLogger("orchestrator")
 
 
 class StationError(RuntimeError):
-    """Lỗi có gắn TRẠM (S1/S2/S3) -> BE ghi RobotEventLog đúng tay bị lỗi."""
-    def __init__(self, message: str, station: str | None = None):
+    """Lỗi có gắn TRẠM (S1/S2/S3) + MÓN -> BE ghi RobotEventLog đúng tay + đúng món bị lỗi."""
+    def __init__(self, message: str, station: str | None = None, dish_id: str | None = None):
         super().__init__(message)
         self.station = station
+        self.dish_id = dish_id
 
 
 class Orchestrator:
     def __init__(self):
         self.queue: asyncio.Queue[ServingJob] = asyncio.Queue()
-        # Tiến độ theo đơn: orderId -> set các món ĐÃ gắp+verify xong (để REQUEUE resume,
-        # không gắp lại món đã xong). In-memory: mất khi restart edge (hiếm giữa đơn).
-        self._done: dict[str, set[str]] = {}
+        # Resume (món đã phục vụ) giờ do BE gắn cờ item.done (nguồn = RobotEventLogs,
+        # sống qua restart edge) — không còn giữ tiến độ in-memory ở đây.
         self._report = None          # callback báo BE (gắn từ main/signalr)
 
     def set_reporter(self, report_cb) -> None:
@@ -46,9 +46,10 @@ class Orchestrator:
                 await self._process(job)
             except Exception as e:  # noqa: BLE001
                 log.exception("lỗi xử lý %s: %s", job.orderId, e)
-                # StationError -> gắn trạm để BE ghi RobotEventLog đúng tay bị lỗi
+                # StationError -> gắn trạm + món để BE ghi RobotEventLog đúng tay + đúng món bị lỗi
                 station = getattr(e, "station", None)
-                await self._emit(job, JobState.FAILED, message=str(e), station=station)
+                dish_id = getattr(e, "dish_id", None)
+                await self._emit(job, JobState.FAILED, message=str(e), station=station, dishId=dish_id)
             finally:
                 self.queue.task_done()
 
@@ -73,43 +74,43 @@ class Orchestrator:
             return
 
         # ===== LUỒNG THẬT (tắt FIRST_TEST_DEMO_MOVE): gắp từng trạm =====
-        # Pipeline mỗi món: GẮP theo teaching point -> ĐẶT lên khay -> QUÉT dotcode verify.
-        #   Sai  -> FAILED (kèm trạm). Đúng -> PICK_COMPLETED. Đủ món -> DONE.
-        done = self._done.setdefault(job.orderId, set())   # món đã xong (resume khi requeue)
-
-        for item in job.items:
-            key = item.dishId or item.dishName or item.station or "?"
-            if key in done:
-                log.info("   ⏭️  bỏ qua %s (đã gắp lượt trước)", item.dish)
+        # Mỗi món: GẮP+ĐẶT (pick_and_place) -> PickCompleted -> QUÉT dotcode -> PlaceCompleted.
+        #   Lỗi -> FAILED (kèm trạm + dishId). Resume: BE gắn item.done -> SKIP (nguồn = RobotEventLogs).
+        served = 0
+        for slot_idx, item in enumerate(job.items, start=1):
+            if item.done:
+                log.info("   ⏭️  bỏ qua %s (BE báo đã phục vụ lượt trước)", item.dish)
+                served += 1
                 continue
 
             station = item.station or settings.DEMO_STATION   # BE chưa gắn nhãn -> mặc định S1
             arm = fleet.get(station)
             if arm is None:
-                raise StationError(f"không có cánh tay cho trạm {station}", station)
+                raise StationError(f"không có cánh tay cho trạm {station}", station, item.dishId)
 
-            # 1) GẮP theo teaching point -> ĐẶT lên khay (ưu tiên laneCode BE gửi)
-            lane_point = item.laneCode or f"LANE_{station}_{item.dish}"
-            place_point = f"PLACE_{station}"
+            # 1) GẮP theo teaching point -> ĐẶT lên khay (ưu tiên laneCode BE gửi, vd "S1_L2")
+            #    BE chưa cấu hình lane -> tạm về lane 1 của trạm (chỉ để test không kẹt)
+            lane_point = item.laneCode or f"{station}_L1"
+            # place: BE có thể gửi placeCode riêng, hoặc tự sinh theo slot index trên khay
+            place_point = item.placeCode or f"PLACE_{station}_{slot_idx}"
             log.info("   → %s: gắp %s @%s → đặt @%s", station, item.dish, lane_point, place_point)
             ok = await asyncio.to_thread(arm.pick_and_place, item.dish, lane_point, place_point)
             if not ok:
-                raise StationError(f"pick_and_place thất bại ở {station}: {item.dish}", station)
+                raise StationError(f"pick_and_place thất bại ở {station}: {item.dish}", station, item.dishId)
+            # đã gắp khỏi lane + đặt lên khay
+            await self._emit(job, JobState.PICK_COMPLETED, station=station, dishId=item.dishId)
 
             # 2) SAU KHI ĐẶT lên khay: camera quét dotcode nắp -> đúng món chưa?
             if not verify_dish(station, expected=item.dish):
                 raise StationError(
                     f"dotcode SAI trên khay ở {station}: cần {item.dish} "
-                    f"(gỡ chén sai khỏi khay trước khi requeue)", station)
+                    f"(gỡ chén sai khỏi khay trước khi requeue)", station, item.dishId)
 
-            # 3) đúng món -> ghi nhận tiến độ + báo BE
-            done.add(key)
-            await self._emit(job, JobState.PICK_COMPLETED, station=station)
+            # 3) xác nhận đúng món -> PlaceCompleted mức MÓN (BE ghi log + tính resume theo dishId)
+            await self._emit(job, JobState.PLACE_COMPLETED, station=station, dishId=item.dishId)
+            served += 1
 
-        # đủ món -> xoá tiến độ + khay đẩy ra Staff
-        self._done.pop(job.orderId, None)
-        await self._emit(job, JobState.DONE)
-        log.info("✅ %s xong (tray %s)", job.orderId, job.trayId)
+        log.info("✅ %s xong (tray %s) — %d/%d món", job.orderId, job.trayId, served, len(job.items))
 
     async def _emit(self, job: ServingJob, state: JobState, **kw) -> None:
         if self._report:

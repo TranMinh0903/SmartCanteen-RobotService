@@ -15,8 +15,10 @@ class Item(BaseModel):
     dishId: str | None = None
     dishName: str | None = None
     quantity: int = 1
-    station: str | None = None        # BE có thể chưa set -> route mặc định S1 khi test
-    laneCode: str | None = None       # nhãn lane BE gửi (vd "S1-L2") -> teaching point ưu tiên
+    station: str | None = None        # BE có thể chưa set → route mặc định S1 khi test
+    laneCode: str | None = None       # nhãn lane BE gửi (vd "S1-L2") → teaching point ưu tiên
+    placeCode: str | None = None      # nhãn vị trí đặt trên khay (vd "PLACE_S1_2") → ưu tiên hơn index
+    done: bool = False                # BE báo món ĐÃ phục vụ lượt trước (resume) → SKIP, khỏi gắp lại
 
     @property
     def dish(self) -> str:            # tiện log
@@ -51,4 +53,5 @@ class StatusUpdate(BaseModel):
     trayId: str | None = None
     state: str
     station: str | None = None
+    dishId: str | None = None        # món của event mức món (PickCompleted/Error) -> BE ghi RobotEventLog.DishId
     message: str | None = None
