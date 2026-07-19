@@ -34,7 +34,8 @@ curl -s -X POST http://178.128.100.1:8080/api/auth/login \
 ```
 
 > Token có hạn dùng. Nếu sau này log Edge báo 401 → login lại lấy token mới, sửa `.env`,
-> `docker compose restart robot-edge`. (Backlog: cơ chế tự refresh.)
+> rồi `docker compose up -d` (KHÔNG dùng `restart` — restart không đọc lại `.env`).
+> (Backlog: cơ chế tự refresh.)
 
 ## Bước 2 — Clone + tạo `.env`
 
@@ -79,7 +80,8 @@ docker logs -f robot-edge     # phải thấy: "DRY_RUN=True", "SignalR ... on_o
 
 ## Ghi chú vận hành
 
-- **Đổi `.env` = phải `docker compose restart robot-edge`** (env chỉ đọc lúc khởi động).
+- **Đổi `.env` = phải `docker compose up -d`** (env chỉ đọc lúc TẠO container; `restart`
+  chỉ stop/start container cũ với env cũ nên KHÔNG ăn thay đổi `.env`).
 - Container tự chạy lại khi server reboot (`restart: unless-stopped`).
 - Cập nhật code mới: `git pull && docker compose up -d --build`.
 - Edge trên server **không cần**: SDK fairino (gitignored), camera, teaching_points đúng chuẩn —
