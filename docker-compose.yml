@@ -1,0 +1,10 @@
+# Edge MOCK trên server (DRY_RUN=true) — xem DEPLOY.md.
+# ⚠️ Khi demo ROBOT THẬT từ laptop: docker compose stop  (không nó giành đơn với Edge thật)
+services:
+  robot-edge:
+    build: .
+    container_name: robot-edge
+    env_file: .env            # tạo từ mẫu trong DEPLOY.md (DRY_RUN=true + token server)
+    ports:
+      - "8000:8000"           # /health, /state (giám sát); bỏ được nếu không cần
+    restart: unless-stopped

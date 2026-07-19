@@ -1,0 +1,14 @@
+# KHÔNG đưa secret/đồ local vào image
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.git/
+service.log
+dotcodes/
+_inspect.py
+_sessions.json

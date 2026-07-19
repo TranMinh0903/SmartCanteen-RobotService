@@ -27,12 +27,15 @@ async def lifespan(app: FastAPI):
     poll_task = asyncio.create_task(idle_poll_loop())
     asyncio.create_task(drain())
 
-    # Nhịp tim: báo BE các trạm còn sống (LastHeartbeatUtc + Offline->Idle), 20s/lần
+    # Nhịp tim: báo BE các trạm còn sống (LastHeartbeatUtc + Offline->Idle), 20s/lần.
+    # CHỈ beat trạm có kết nối robot thật (DRY_RUN: mock luôn connected) — trạm đứt dây
+    # thì ngừng beat, BE/watchdog mới biết nó chết thật.
     async def heartbeat_loop() -> None:
-        stations = list(settings.arms.keys())
         await asyncio.sleep(5)          # chờ SignalR mở kết nối (tránh bắn trước on_open)
         while True:
-            await signalr_client.heartbeat(stations)
+            stations = [s for s, arm in fleet.arms.items() if arm.connected]
+            if stations:
+                await signalr_client.heartbeat(stations)
             await asyncio.sleep(20)
 
     hb_task = asyncio.create_task(heartbeat_loop())
@@ -60,4 +63,4 @@ def state():
 async def order(job: ServingJob):
     """Endpoint TEST (thay SignalR khi dev local) — đẩy 1 ServingJob vào hàng đợi."""
     await orchestrator.submit(job)
-    return {"status": "accepted", "orderId": job.orderId, "tray": job.tray}
+    return {"status": "accepted", "orderId": job.orderId, "tray": job.trayCode or job.trayId}
