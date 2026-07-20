@@ -94,6 +94,8 @@ class Orchestrator:
             # place: BE có thể gửi placeCode riêng, hoặc tự sinh theo slot index trên khay
             place_point = item.placeCode or f"PLACE_{station}_{slot_idx}"
             log.info("   → %s: gắp %s @%s → đặt @%s", station, item.dish, lane_point, place_point)
+            # BẮT ĐẦU gắp món này -> BE ghi PickStarted (đủ timeline từng món)
+            await self._emit(job, JobState.PICK_STARTED, station=station, dishId=item.dishId)
             ok = await asyncio.to_thread(arm.pick_and_place, item.dish, lane_point, place_point)
             if not ok:
                 raise StationError(f"pick_and_place thất bại ở {station}: {item.dish}", station, item.dishId)
